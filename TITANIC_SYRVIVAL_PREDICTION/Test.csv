@@ -1,0 +1,152 @@
+# ---------------------------------------------------------------
+# TITANIC SURVIVAL PREDICTION (Train + Test)
+# ---------------------------------------------------------------
+# Files required in the same folder:
+#   - Titanic-Dataset.csv  (train data with 'Survived')
+#   - test.csv             (test data without 'Survived')
+# ---------------------------------------------------------------
+
+import os
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score, classification_report, confusion_matrix, roc_auc_score
+)
+import pickle
+
+# ---------------------------------------------------------------
+# STEP 1: Load train and test datasets
+# ---------------------------------------------------------------
+TRAIN_PATH = "Titanic-Dataset.csv"
+TEST_PATH = r"C:\Users\sarit\Downloads\test.csv"
+
+
+# Verify both files exist
+for path in [TRAIN_PATH, TEST_PATH]:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"❌ File not found: {os.path.abspath(path)}")
+
+train_df = pd.read_csv(TRAIN_PATH)
+test_df = pd.read_csv(TEST_PATH)
+print("✅ Files loaded successfully!")
+print("Train shape:", train_df.shape)
+print("Test shape:", test_df.shape)
+
+# ---------------------------------------------------------------
+# STEP 2: Data Cleaning Function (to apply to both datasets)
+# ---------------------------------------------------------------
+def preprocess_data(df, is_train=True):
+    df = df.copy()
+    drop_cols = ["PassengerId", "Name", "Ticket", "Cabin"]
+    df.drop(columns=[c for c in drop_cols if c in df.columns], inplace=True, errors="ignore")
+
+    # Fill missing numeric values
+    if "Age" in df.columns:
+        df["Age"].fillna(df["Age"].median(), inplace=True)
+    if "Fare" in df.columns:
+        df["Fare"].fillna(df["Fare"].median(), inplace=True)
+    if "Embarked" in df.columns:
+        df["Embarked"].fillna(df["Embarked"].mode()[0], inplace=True)
+
+    # Encode categorical variables
+    if "Sex" in df.columns:
+        df["Sex"] = df["Sex"].map({"male": 0, "female": 1}).astype(int)
+    if "Embarked" in df.columns:
+        embarked_dummies = pd.get_dummies(df["Embarked"], prefix="Embarked", drop_first=True)
+        df = pd.concat([df.drop(columns=["Embarked"]), embarked_dummies], axis=1)
+
+    if is_train:
+        # Ensure target column exists
+        target_col = None
+        for col in ["Survived", "survived", "Survive"]:
+            if col in df.columns:
+                target_col = col
+                break
+        if target_col is None:
+            raise ValueError("❌ Target column 'Survived' not found in training data!")
+        X = df.drop(columns=[target_col])
+        y = df[target_col].astype(int)
+        return X, y
+    else:
+        return df
+
+# ---------------------------------------------------------------
+# STEP 3: Preprocess train and test data
+# ---------------------------------------------------------------
+X, y = preprocess_data(train_df, is_train=True)
+test_processed = preprocess_data(test_df, is_train=False)
+
+print("✅ Preprocessing complete!")
+print("Training features:", X.columns.tolist())
+print("Train shape:", X.shape, "| Test shape:", test_processed.shape)
+
+# Align columns of test with train (if any missing)
+for col in X.columns:
+    if col not in test_processed.columns:
+        test_processed[col] = 0
+test_processed = test_processed[X.columns]  # same order as training
+
+# ---------------------------------------------------------------
+# STEP 4: Split data & Train Model
+# ---------------------------------------------------------------
+X_train, X_val, y_train, y_val = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+print("✅ Model trained successfully!")
+
+# ---------------------------------------------------------------
+# STEP 5: Evaluate Model
+# ---------------------------------------------------------------
+y_pred = model.predict(X_val)
+y_proba = model.predict_proba(X_val)[:, 1]
+acc = accuracy_score(y_val, y_pred)
+roc_auc = roc_auc_score(y_val, y_proba)
+print("\n🔹 Model Evaluation 🔹")
+print(f"Accuracy: {acc:.4f}")
+print(f"ROC AUC: {roc_auc:.4f}")
+print("\nClassification Report:\n", classification_report(y_val, y_pred, zero_division=0))
+print("Confusion Matrix:\n", confusion_matrix(y_val, y_pred))
+
+# ---------------------------------------------------------------
+# STEP 6: Predict on Test Dataset
+# ---------------------------------------------------------------
+test_predictions = model.predict(test_processed)
+
+# Attach predictions to PassengerId (if available)
+if "PassengerId" in test_df.columns:
+    output = pd.DataFrame({
+        "PassengerId": test_df["PassengerId"],
+        "Survived": test_predictions
+    })
+else:
+    output = pd.DataFrame({"Survived": test_predictions})
+
+# ---------------------------------------------------------------
+# STEP 7: Save Model and Outputs
+# ---------------------------------------------------------------
+os.makedirs("titanic_output", exist_ok=True)
+
+# Save trained model
+with open("titanic_output/titanic_rf_model.pkl", "wb") as f:
+    pickle.dump(model, f)
+
+# Save validation predictions
+val_pred_df = X_val.reset_index(drop=True).copy()
+val_pred_df["true_survived"] = y_val.reset_index(drop=True)
+val_pred_df["pred_survived"] = y_pred
+val_pred_df["pred_proba"] = y_proba
+val_pred_df.to_csv("titanic_output/validation_predictions.csv", index=False)
+
+# Save test predictions (final submission-style)
+output_path = "titanic_output/final_predictions.csv"
+output.to_csv(output_path, index=False)
+
+print("\n✅ All tasks completed successfully!")
+print("Files saved in 'titanic_output/' folder:")
+print(" - titanic_rf_model.pkl")
+print(" - validation_predictions.csv")
+print(" - final_predictions.csv")
+print("\n🎯 Titanic survival predictions ready!")

@@ -1,0 +1,9 @@
+MOVIE RATING PREDICTION REPORT
+===============================
+Total rows used: 7919
+Feature used: Votes
+Mean Absolute Error (MAE): 1.10
+R² Score: 0.02
+
+✅ Model trained successfully!
+Plot saved as: actual_vs_predicted.png
